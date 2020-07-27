@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -e
+shopt -s extglob
+
+#TFVARS="$1"
+# where kube-bench vars set in our master projects TFVARS
+KUBE_BENCH_VERSION="0.3.0"
+KUBE_BENCH_REPO_REGION="us-west-2"
+#KUBE_BENCH_VERSION=$(awk -F "= " '/kube_bench_version/ {print $2}' ${TFVARS} | sed 's/"//g')
+# egrep 'kube_bench_version' ../../dev-usw2-terraform.tfvars
+#KUBE_BENCH_REPO_REGION=$(awk -F "= " '/kube_bench_repo_region/ {print $2}' ${TFVARS} | sed 's/"//g')
+# egrep 'kube_bench_repo_region' ../../dev-usw2-terraform.tfvars
+
+echo $KUBE_BENCH_VERSION
+echo $KUBE_BENCH_REPO_REGION
+
+aws ecr create-repository --repository-name k8s/kube-bench --image-tag-mutability MUTABLE && true
+
+rm -rf ./manifests && mkdir ./manifests
+rm -rf ./kube-bench # JIC exists from failed previous execution or manual run etc.
+
+git clone git@github.com:aquasecurity/kube-bench.git
+
+cd ./kube-bench
+
+git fetch --tags
+
+git checkout v$KUBE_BENCH_VERSION
+
+docker build -t k8s/kube-bench .
+
+docker tag k8s/kube-bench:latest "012345678910.dkr.ecr.${KUBE_BENCH_REPO_REGION}.amazonaws.com/k8s/kube-bench:${KUBE_BENCH_VERSION}"
+
+#(aws ecr get-login --no-include-email --region us-west-2)
+COMMAND=$(aws --region ${KUBE_BENCH_REPO_REGION} ecr get-login-password | docker login --username AWS --password-stdin 012345678910.dkr.ecr.us-west-2.amazonaws.com)
+
+docker push "012345678910.dkr.ecr.${KUBE_BENCH_REPO_REGION}.amazonaws.com/k8s/kube-bench:${KUBE_BENCH_VERSION}"
+
+cd ..
+
+cp ./kube-bench/job-eks.yaml ./jobs
+sed -i "s#image.*#image: 012345678910.dkr.ecr.${KUBE_BENCH_REPO_REGION}.amazonaws.com/k8s/kube-bench:${KUBE_BENCH_VERSION}#" ./jobs/job-eks.yaml
+
+sed -e "s#__KUBE_BENCH_VERSION__#${KUBE_BENCH_VERSION}#g" ./templates/06-cron.yaml.tpl > "./manifests/06-cron.yaml"
+
+rm -rf ./kube-bench
+

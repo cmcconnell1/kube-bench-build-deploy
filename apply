@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+kubectl apply --recursive -f ./manifests
+
+#sleep 15
+#kubectl logs -f job.batch/kube-bench -n default
